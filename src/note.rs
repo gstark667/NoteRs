@@ -14,10 +14,13 @@ pub struct Section {
 trait Node: Debug {
     fn len(&self, flatten: bool) -> usize;
     fn string(&self, flatten: bool) -> String;
-    fn insert(&mut self, text: &str, pos: usize);
+    fn insert(&mut self, text: &str, pos: usize) -> bool;
     fn translate(&mut self, pos: usize) -> usize;
+    fn toggle(&mut self, path: &[usize]);
     fn collapse(&mut self, path: &[usize]);
     fn expand(&mut self, path: &[usize]);
+    fn path(&self, pos: usize) -> Vec<usize>;
+    fn type_id(&self) -> TypeId;
 }
 
 impl Node for String {
@@ -29,12 +32,17 @@ impl Node for String {
         return self.to_string();
     }
 
-    fn insert(&mut self, text: &str, pos: usize) {
+    fn insert(&mut self, text: &str, pos: usize) -> bool {
         self.insert_str(pos, text);
+        return true;
     }
 
     fn translate(&mut self, pos: usize) -> usize {
         return pos;
+    }
+
+    fn toggle(&mut self, _: &[usize]) {
+        panic!("cannot toggle string");
     }
 
     fn collapse(&mut self, _: &[usize]) {
@@ -43,6 +51,14 @@ impl Node for String {
 
     fn expand(&mut self, _: &[usize]) {
         panic!("cannot expand string");
+    }
+
+    fn path(&self, _: usize) -> Vec<usize> {
+        return Vec::<usize>::new();
+    }
+
+    fn type_id(&self) -> TypeId {
+        TypeId::of::<Self>()
     }
 }
 
@@ -58,6 +74,10 @@ impl Default for Section {
 }
 
 impl Node for Section {
+    fn type_id(&self) -> TypeId {
+        TypeId::of::<Self>()
+    }
+
     fn len(&self, flatten: bool) -> usize {
         let mut length = 0;
         if self.level > 0 {
@@ -76,9 +96,6 @@ impl Node for Section {
         for _ in 0..self.level {
             output += "#";
         }
-        /*if self.level > 0 {
-            output += " ";
-        }*/
         output += self.heading.as_str();
         if full || self.expanded {
             for node in &self.children {
@@ -93,18 +110,18 @@ impl Node for Section {
 
     }*/
 
-    fn insert(&mut self, text: &str, pos: usize) {
+    fn insert(&mut self, text: &str, pos: usize) -> bool {
         let mut cur = pos;
         if self.level > 0 {
             // TODO: handle reparse if it editing the heading marker
             if cur < self.level {
-                return;
+                return false;
             }
             cur -= self.level;
 
             if cur < self.heading.len() {
                 self.heading.insert_str(cur, text);
-                return;
+                return true;
             }
             cur -= self.heading.len();
         }
@@ -112,11 +129,14 @@ impl Node for Section {
         for n in &mut self.children {
             let len = n.len(false);
             if cur < len {
-                n.insert(text, cur);
-                return;
+                if !n.insert(text, cur) {
+                    return false;
+                }
+                return true;
             }
             cur -= len;
         }
+        return false;
     }
 
     fn translate(&mut self, pos: usize) -> usize {
@@ -144,6 +164,17 @@ impl Node for Section {
 
     //fn delete(&mut self, range: std::ops::Range<usize>) {}
 
+    fn toggle(&mut self, path: &[usize]) {
+        if path.len() == 0 {
+            if self.level == 0 {
+                return;
+            }
+            self.expanded = !self.expanded;
+        } else {
+            self.children[path[0]].toggle(&path[1..]);
+        }
+    }
+
     fn collapse(&mut self, path: &[usize]) {
         if path.len() == 0 {
             self.expanded = false;
@@ -158,6 +189,26 @@ impl Node for Section {
         } else {
             self.children[path[0]].expand(&path[1..]);
         }
+    }
+
+    fn path(&self, pos: usize) -> Vec<usize> {
+        let mut cur = self.level + self.heading.len();
+        if pos < cur {
+            return Vec::<usize>::new();
+        }
+
+        for (i, n) in self.children.iter().enumerate() {
+            cur += n.len(false);
+            if pos <= cur {
+                if n.type_id() == TypeId::of::<String>() {
+                    return Vec::<usize>::new();
+                }
+                let mut tmp = n.path(pos);
+                tmp.insert(0, i);
+                return tmp;
+            }
+        }
+        return Vec::<usize>::new();
     }
 }
 
@@ -249,6 +300,15 @@ impl Note {
     pub fn refresh(&mut self) {
         self.repr = self.root.string(false);
     }
+
+    pub fn path(&self, pos: usize) -> Vec<usize> {
+        println!("{:?}", self.root);
+        return self.root.path(pos);
+    }
+
+    pub fn toggle(&mut self, path: &[usize]) {
+        self.root.toggle(path);
+    }
 }
 
 impl Default for Note {
@@ -271,15 +331,16 @@ impl TextBuffer for Note {
         return self.repr.as_str();
     }
     fn insert_text(&mut self, text: &str, char_index: usize) -> usize {
-        self.internal = self.root.string(true);
-        println!("translates to {}", self.root.translate(char_index));
-        self.internal
-            .insert_str(self.root.translate(char_index), text);
-        println!("inserted to {}", self.internal);
-        self.root.children = parse(self.internal.clone());
-        self.repr = self.root.string(false);
-        println!("flattened to {}", self.repr);
         // TODO: add editable flag to node items and return 0 if in a generated section
+        // try for a fast insert first
+        if !self.root.insert(text, char_index) {
+            // do a full render and re-parse if not
+            self.internal = self.root.string(true);
+            self.internal
+                .insert_str(self.root.translate(char_index), text);
+            self.root.children = parse(self.internal.clone());
+        }
+        self.repr = self.root.string(false);
         return text.len();
     }
     fn delete_char_range(&mut self, char_range: std::ops::Range<usize>) {
@@ -383,6 +444,15 @@ mod tests {
         println!("{}", sec.string(false));
         println!("testing 10, folded");
         assert_eq!(16, sec.translate(10));
+    }
+
+    #[test]
+    fn test_path() {
+        let mut sec = Section::default();
+        let example = "# A\n## B\nbbbbb\n## C\nccccc";
+        sec.children = parse(example.to_string());
+
+        assert_eq!([0usize, 1usize], sec.path(20).iter().as_slice());
     }
 
     #[test]

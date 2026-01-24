@@ -284,6 +284,8 @@ impl eframe::App for NoteRs {
             }
             if ctx.input_mut(|i| i.consume_key(egui::Modifiers::COMMAND, egui::Key::T)) {
                 // TODO: translate and toggle
+                let path = self.note.path(self.cursor_range.primary.index);
+                self.note.toggle(path.as_slice());
                 self.note.refresh();
             }
         });
