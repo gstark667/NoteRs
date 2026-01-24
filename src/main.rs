@@ -234,51 +234,51 @@ impl NoteRs {
 impl eframe::App for NoteRs {
     fn update(&mut self, ctx: &egui::Context, _: &mut eframe::Frame) {
         egui::CentralPanel::default().show(ctx, |ui| {
-            let mut layouter = |ui: &egui::Ui, buf: &dyn egui::TextBuffer, _wrap_width: f32| {
-                let job = render_markdown(buf.as_str(), &mut self.link_spans);
-
-                ui.fonts_mut(|f| f.layout_job(job))
-            };
-
             ui.heading(self.path.display().to_string());
-            let editor = egui::TextEdit::multiline(&mut self.note)
-                .desired_width(f32::INFINITY)
-                .desired_rows(30)
-                .layouter(&mut layouter)
-                .id(egui::Id::new("editor"))
-                .show(ui);
+            egui::ScrollArea::vertical().show(ui, |ui| {
+                let mut layouter = |ui: &egui::Ui, buf: &dyn egui::TextBuffer, _wrap_width: f32| {
+                    let job = render_markdown(buf.as_str(), &mut self.link_spans);
 
-            let response = editor.response;
-            let galley = editor.galley;
+                    ui.fonts_mut(|f| f.layout_job(job))
+                };
+                let editor = egui::TextEdit::multiline(&mut self.note)
+                    .desired_width(f32::INFINITY)
+                    .desired_rows((ctx.content_rect().height() / 16f32) as usize)
+                    .layouter(&mut layouter)
+                    .id(egui::Id::new("editor"))
+                    .show(ui);
+                let response = editor.response;
+                let galley = editor.galley;
 
-            if let Some(cursor_range) = editor.cursor_range {
-                if self.cursor_range.primary.index != cursor_range.primary.index
-                    || self.cursor_range.secondary.index != cursor_range.primary.index
-                {
-                    println!("cursor moved: {:?}", cursor_range);
+                if let Some(cursor_range) = editor.cursor_range {
+                    if self.cursor_range.primary.index != cursor_range.primary.index
+                        || self.cursor_range.secondary.index != cursor_range.primary.index
+                    {
+                        println!("cursor moved: {:?}", cursor_range);
+                    }
+                    self.cursor_range = cursor_range;
                 }
-                self.cursor_range = cursor_range;
-            }
 
-            if response.clicked() {
-                if let Some(pos) = response.interact_pointer_pos() {
-                    let local_pos = pos - response.rect.min;
-                    let cursor = galley.cursor_from_pos(local_pos);
-                    let idx = cursor.index;
+                if response.clicked() {
+                    if let Some(pos) = response.interact_pointer_pos() {
+                        let local_pos = pos - response.rect.min;
+                        let cursor = galley.cursor_from_pos(local_pos);
+                        let idx = cursor.index;
 
-                    let mut to_open: Option<String> = None;
-                    for (range, keyword) in &self.link_spans {
-                        if range.contains(&idx) {
-                            to_open = Some(keyword.to_string());
-                            break;
+                        let mut to_open: Option<String> = None;
+                        for (range, keyword) in &self.link_spans {
+                            if range.contains(&idx) {
+                                to_open = Some(keyword.to_string());
+                                break;
+                            }
+                        }
+
+                        if let Some(path) = to_open {
+                            self.open_file(path)
                         }
                     }
-
-                    if let Some(path) = to_open {
-                        self.open_file(path)
-                    }
                 }
-            }
+            });
             if ctx.input_mut(|i| i.consume_key(egui::Modifiers::COMMAND, egui::Key::S)) {
                 self.save_file();
             }

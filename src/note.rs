@@ -3,15 +3,48 @@ use regex::Regex;
 use std::any::TypeId;
 use std::fmt::Debug;
 
+#[derive(Clone, Debug, PartialEq)]
+enum MarkdownType {
+    None,
+    Heading,
+    Paragraph,
+    Bold,
+    Italic,
+}
+
+#[derive(Clone, Debug, PartialEq)]
+enum NodeType {
+    MarkdownString,
+    Section,
+}
+
 #[derive(Debug)]
 pub struct Section {
     heading: String,
     expanded: bool,
     level: usize,
+    mdtype: MarkdownType,
     children: Vec<Box<dyn Node>>,
 }
 
+#[derive(Clone, Debug)]
+struct MarkdownString {
+    text: String,
+    mdtype: MarkdownType,
+}
+
+impl MarkdownString {
+    pub fn new(content: String) -> Self {
+        return Self {
+            text: content,
+            mdtype: MarkdownType::Paragraph,
+        };
+    }
+}
+
 trait Node: Debug {
+    fn type_id(&self) -> NodeType;
+    fn md_type(&self) -> MarkdownType;
     fn len(&self, flatten: bool) -> usize;
     fn string(&self, flatten: bool) -> String;
     fn insert(&mut self, text: &str, pos: usize) -> bool;
@@ -20,20 +53,28 @@ trait Node: Debug {
     fn collapse(&mut self, path: &[usize]);
     fn expand(&mut self, path: &[usize]);
     fn path(&self, pos: usize) -> Vec<usize>;
-    fn type_id(&self) -> TypeId;
+    fn markdown(&self) -> Vec<MarkdownString>;
 }
 
-impl Node for String {
+impl Node for MarkdownString {
+    fn type_id(&self) -> NodeType {
+        NodeType::MarkdownString
+    }
+
+    fn md_type(&self) -> MarkdownType {
+        self.mdtype.clone()
+    }
+
     fn len(&self, _: bool) -> usize {
-        return self.len();
+        return self.text.len();
     }
 
     fn string(&self, _: bool) -> String {
-        return self.to_string();
+        return self.text.to_string();
     }
 
     fn insert(&mut self, text: &str, pos: usize) -> bool {
-        self.insert_str(pos, text);
+        self.text.insert_str(pos, text);
         return true;
     }
 
@@ -57,8 +98,8 @@ impl Node for String {
         return Vec::<usize>::new();
     }
 
-    fn type_id(&self) -> TypeId {
-        TypeId::of::<Self>()
+    fn markdown(&self) -> Vec<MarkdownString> {
+        return vec![self.clone()];
     }
 }
 
@@ -68,14 +109,19 @@ impl Default for Section {
             heading: String::new(),
             expanded: true,
             level: 0,
+            mdtype: MarkdownType::None,
             children: Vec::new(),
         }
     }
 }
 
 impl Node for Section {
-    fn type_id(&self) -> TypeId {
-        TypeId::of::<Self>()
+    fn type_id(&self) -> NodeType {
+        NodeType::Section
+    }
+
+    fn md_type(&self) -> MarkdownType {
+        self.mdtype.clone()
     }
 
     fn len(&self, flatten: bool) -> usize {
@@ -200,7 +246,7 @@ impl Node for Section {
         for (i, n) in self.children.iter().enumerate() {
             cur += n.len(false);
             if pos <= cur {
-                if n.type_id() == TypeId::of::<String>() {
+                if n.type_id() == NodeType::MarkdownString {
                     return Vec::<usize>::new();
                 }
                 let mut tmp = n.path(pos);
@@ -209,6 +255,25 @@ impl Node for Section {
             }
         }
         return Vec::<usize>::new();
+    }
+
+    fn markdown(&self) -> Vec<MarkdownString> {
+        let mut hstring = "".to_string();
+        for _ in 0..self.level {
+            hstring += "#";
+        }
+        hstring += &self.heading;
+
+        let mut md = vec![MarkdownString {
+            text: hstring,
+            mdtype: MarkdownType::Heading,
+        }];
+
+        for c in &self.children {
+            md.append(&mut c.markdown());
+        }
+
+        return md;
     }
 }
 
@@ -241,7 +306,9 @@ fn parse(text: String) -> Vec<Box<dyn Node>> {
             }
 
             if range.start > 0 {
-                nodes.push(Box::new(text[..range.start].to_string()));
+                nodes.push(Box::new(MarkdownString::new(
+                    text[..range.start].to_string(),
+                )));
             }
             continue;
         } else if caps.get(1).unwrap().len() > level {
@@ -253,6 +320,7 @@ fn parse(text: String) -> Vec<Box<dyn Node>> {
             heading: heading,
             expanded: true,
             level: level,
+            mdtype: MarkdownType::Heading,
             children: parse(text[pos..range.start].to_string()),
         }));
         heading = caps.get(2).unwrap().as_str().to_string();
@@ -265,7 +333,7 @@ fn parse(text: String) -> Vec<Box<dyn Node>> {
     }
 
     if level == 0 {
-        nodes.push(Box::new(text));
+        nodes.push(Box::new(MarkdownString::new(text)));
         return nodes;
     }
 
@@ -275,6 +343,7 @@ fn parse(text: String) -> Vec<Box<dyn Node>> {
         heading: heading,
         expanded: true,
         level: level,
+        mdtype: MarkdownType::Heading,
         children: parse(text[pos..].to_string()),
     }));
 
@@ -363,7 +432,7 @@ impl TextBuffer for Note {
 
 #[cfg(test)]
 mod tests {
-    use crate::note::{Node, Note, Section, parse};
+    use crate::note::{MarkdownType, Node, Note, Section, parse};
     use eframe::egui::TextBuffer;
 
     #[test]
@@ -460,5 +529,20 @@ mod tests {
         let mut note = Note::new("# A\n\na\n".to_string());
         note.insert_text("#", 4);
         assert_eq!("# A\n#\na\n", note.as_str());
+    }
+
+    #[test]
+    fn test_markdown() {
+        let mut sec = Section::default();
+        let example = "# A\n## B\nbbbbb\n## C\nccccc";
+        sec.children = parse(example.to_string());
+
+        let md = sec.markdown();
+        assert_eq!(MarkdownType::Heading, md[0].mdtype);
+        assert_eq!(MarkdownType::Heading, md[1].mdtype);
+        assert_eq!(MarkdownType::Heading, md[2].mdtype);
+        assert_eq!(MarkdownType::Paragraph, md[3].mdtype);
+        assert_eq!(MarkdownType::Heading, md[4].mdtype);
+        assert_eq!(MarkdownType::Paragraph, md[5].mdtype);
     }
 }
