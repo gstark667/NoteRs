@@ -1,19 +1,49 @@
 use crate::egui::TextBuffer;
 use regex::Regex;
 use std::any::TypeId;
+use std::fmt::Debug;
 
-#[derive(Debug, Clone)]
+#[derive(Debug)]
 pub struct Section {
-    pub heading: String,
-    pub expanded: bool,
-    pub level: usize,
-    pub children: Vec<Node>,
+    heading: String,
+    expanded: bool,
+    level: usize,
+    children: Vec<Box<dyn Node>>,
 }
 
-#[derive(Debug, Clone)]
-pub enum Node {
-    Text(String),
-    Section(Section),
+trait Node: Debug {
+    fn len(&self, flatten: bool) -> usize;
+    fn string(&self, flatten: bool) -> String;
+    fn insert(&mut self, text: &str, pos: usize);
+    fn translate(&mut self, pos: usize) -> usize;
+    fn collapse(&mut self, path: &[usize]);
+    fn expand(&mut self, path: &[usize]);
+}
+
+impl Node for String {
+    fn len(&self, _: bool) -> usize {
+        return self.len();
+    }
+
+    fn string(&self, _: bool) -> String {
+        return self.to_string();
+    }
+
+    fn insert(&mut self, text: &str, pos: usize) {
+        self.insert_str(pos, text);
+    }
+
+    fn translate(&mut self, pos: usize) -> usize {
+        return pos;
+    }
+
+    fn collapse(&mut self, _: &[usize]) {
+        panic!("cannot collapse string");
+    }
+
+    fn expand(&mut self, _: &[usize]) {
+        panic!("cannot expand string");
+    }
 }
 
 impl Default for Section {
@@ -27,10 +57,23 @@ impl Default for Section {
     }
 }
 
-impl Section {
-    fn flatten(&self, full: bool) -> String {
+impl Node for Section {
+    fn len(&self, flatten: bool) -> usize {
+        let mut length = 0;
+        if self.level > 0 {
+            length = self.level /*+ 1*/ + self.heading.len();
+        }
+        if self.expanded || flatten {
+            for n in &self.children {
+                length += n.len(flatten);
+            }
+        }
+        return length;
+    }
+
+    fn string(&self, full: bool) -> String {
         let mut output = "".to_string();
-        for i in 0..self.level {
+        for _ in 0..self.level {
             output += "#";
         }
         /*if self.level > 0 {
@@ -39,29 +82,10 @@ impl Section {
         output += self.heading.as_str();
         if full || self.expanded {
             for node in &self.children {
-                match node {
-                    Node::Text(t) => output += t.as_str(),
-                    Node::Section(s) => output += s.flatten(full).as_str(),
-                }
+                output += node.string(full).as_str();
             }
         }
         return output;
-    }
-
-    fn len(&self, flatten: bool) -> usize {
-        let mut length = 0;
-        if self.level > 0 {
-            length = self.level /*+ 1*/ + self.heading.len();
-        }
-        if self.expanded || flatten {
-            for n in &self.children {
-                match n {
-                    Node::Text(t) => length += t.len(),
-                    Node::Section(s) => length += s.len(flatten),
-                }
-            }
-        }
-        return length;
     }
 
     /*fn convert(&self, pos: usize) {
@@ -69,43 +93,30 @@ impl Section {
 
     }*/
 
-    fn insert(&mut self, text: String, pos: usize) -> bool {
+    fn insert(&mut self, text: &str, pos: usize) {
         let mut cur = pos;
         if self.level > 0 {
             // TODO: handle reparse if it editing the heading marker
-            if cur < self.level + 1 {
-                return false;
+            if cur < self.level {
+                return;
             }
-            cur -= self.level + 1;
+            cur -= self.level;
 
             if cur < self.heading.len() {
-                self.heading.insert_str(cur, text.as_str());
-                return true;
+                self.heading.insert_str(cur, text);
+                return;
             }
             cur -= self.heading.len();
         }
 
         for n in &mut self.children {
-            match n {
-                Node::Text(t) => {
-                    if cur < t.len() {
-                        t.insert_str(cur, text.as_str());
-                        return true;
-                    }
-                    cur -= t.len();
-                }
-                Node::Section(s) => {
-                    let len = s.len(false);
-                    if cur < len {
-                        s.insert(text, cur);
-                        return true;
-                    }
-                    cur -= len;
-                }
+            let len = n.len(false);
+            if cur < len {
+                n.insert(text, cur);
+                return;
             }
+            cur -= len;
         }
-
-        return false;
     }
 
     fn translate(&mut self, pos: usize) -> usize {
@@ -119,32 +130,35 @@ impl Section {
 
         let mut offset = 0;
         if self.expanded {
-            'outer: for n in &mut self.children {
-                match n {
-                    Node::Text(t) => {
-                        println!("{} {} {} {}", t, pos, cur, t.len());
-                        if pos - cur < t.len() {
-                            return pos + offset;
-                        }
-                        cur += t.len();
-                    }
-                    Node::Section(s) => {
-                        println!("{:?} {} {} {}", s, pos, cur, s.len(false));
-                        if pos - cur < s.len(false) {
-                            return s.translate(pos - cur) + cur + offset;
-                        }
-                        cur += s.len(false);
-                        offset += s.len(true) - s.len(false);
-                    }
+            for n in &mut self.children {
+                let display_len = n.len(false);
+                if pos - cur < display_len {
+                    return n.translate(pos - cur) + cur + offset;
                 }
+                cur += display_len;
+                offset += n.len(true) - display_len;
             }
         }
-        println!("{:?} {}", self, pos);
-        //panic!("translate out of range");
         return pos + offset;
     }
 
-    fn delete(&mut self, range: std::ops::Range<usize>) {}
+    //fn delete(&mut self, range: std::ops::Range<usize>) {}
+
+    fn collapse(&mut self, path: &[usize]) {
+        if path.len() == 0 {
+            self.expanded = false;
+        } else {
+            self.children[path[0]].collapse(&path[1..]);
+        }
+    }
+
+    fn expand(&mut self, path: &[usize]) {
+        if path.len() == 0 {
+            self.expanded = true;
+        } else {
+            self.children[path[0]].expand(&path[1..]);
+        }
+    }
 }
 
 pub struct Note {
@@ -153,8 +167,8 @@ pub struct Note {
     repr: String,
 }
 
-fn parse(text: String) -> Vec<Node> {
-    let mut nodes = Vec::new();
+fn parse(text: String) -> Vec<Box<dyn Node>> {
+    let mut nodes: Vec<Box<dyn Node>> = Vec::new();
 
     let mut level = 0;
     let mut pos = 0;
@@ -176,7 +190,7 @@ fn parse(text: String) -> Vec<Node> {
             }
 
             if range.start > 0 {
-                nodes.push(Node::Text(text[..range.start].to_string()));
+                nodes.push(Box::new(text[..range.start].to_string()));
             }
             continue;
         } else if caps.get(1).unwrap().len() > level {
@@ -184,7 +198,7 @@ fn parse(text: String) -> Vec<Node> {
         }
 
         let range = caps.get(0).unwrap().range();
-        nodes.push(Node::Section(Section {
+        nodes.push(Box::new(Section {
             heading: heading,
             expanded: true,
             level: level,
@@ -200,13 +214,13 @@ fn parse(text: String) -> Vec<Node> {
     }
 
     if level == 0 {
-        nodes.push(Node::Text(text));
+        nodes.push(Box::new(text));
         return nodes;
     }
 
     // parse the remainder of the file and stick the last heading on it
     //   TODO: I don't like having a second copy of this here
-    nodes.push(Node::Section(Section {
+    nodes.push(Box::new(Section {
         heading: heading,
         expanded: true,
         level: level,
@@ -233,7 +247,7 @@ impl Note {
     }
 
     pub fn refresh(&mut self) {
-        self.repr = self.root.flatten(false);
+        self.repr = self.root.string(false);
     }
 }
 
@@ -257,13 +271,13 @@ impl TextBuffer for Note {
         return self.repr.as_str();
     }
     fn insert_text(&mut self, text: &str, char_index: usize) -> usize {
-        self.internal = self.root.flatten(true);
+        self.internal = self.root.string(true);
         println!("translates to {}", self.root.translate(char_index));
         self.internal
             .insert_str(self.root.translate(char_index), text);
         println!("inserted to {}", self.internal);
         self.root.children = parse(self.internal.clone());
-        self.repr = self.root.flatten(false);
+        self.repr = self.root.string(false);
         println!("flattened to {}", self.repr);
         // TODO: add editable flag to node items and return 0 if in a generated section
         return text.len();
@@ -271,13 +285,13 @@ impl TextBuffer for Note {
     fn delete_char_range(&mut self, char_range: std::ops::Range<usize>) {
         // TODO: navigate the sections to find the right area to mess with
         //   re-parse file when crossing section boundaries
-        self.internal = self.root.flatten(true);
+        self.internal = self.root.string(true);
         self.internal.drain(std::ops::Range {
             start: self.root.translate(char_range.start),
             end: self.root.translate(char_range.end),
         });
         self.root.children = parse(self.internal.clone());
-        self.repr = self.root.flatten(false);
+        self.repr = self.root.string(false);
     }
 
     // Implement it like the following:
@@ -297,31 +311,31 @@ mod tests {
         let mut example = "# Big Head\n## Little Head\nSome body\nMore Body##Second Little Head\none body\n# Another Big One\nend";
         sec.children = parse(example.to_string());
         println!("{:?}", sec);
-        assert_eq!(example, sec.flatten(true));
+        assert_eq!(example, sec.string(true));
 
         example = "not starting with a heading\n# Now Heading\nasdfasdf\nasdf\n";
         sec.children = parse(example.to_string());
-        assert_eq!(example, sec.flatten(true));
+        assert_eq!(example, sec.string(true));
 
         example = "# A\n## B\n### C";
         sec.children = parse(example.to_string());
         println!("{:?}", sec);
-        assert_eq!(example, sec.flatten(true));
+        assert_eq!(example, sec.string(true));
 
         example = "# A\n### B\n## C";
         sec.children = parse(example.to_string());
         println!("{:?}", sec);
-        assert_eq!(example, sec.flatten(true));
+        assert_eq!(example, sec.string(true));
 
         example = "# A";
         sec.children = parse(example.to_string());
         println!("{:?}", sec);
-        assert_eq!(example, sec.flatten(true));
+        assert_eq!(example, sec.string(true));
 
         example = "# A\n#\na\n";
         sec.children = parse(example.to_string());
         println!("{:?}", sec);
-        assert_eq!(example, sec.flatten(true));
+        assert_eq!(example, sec.string(true));
     }
 
     #[test]
@@ -329,54 +343,34 @@ mod tests {
         let mut sec = Section::default();
         let example = "# A\n## B\nbbbbb\n## C\nccccc";
         sec.children = parse(example.to_string());
-        match &mut sec.children[0] {
-            Node::Section(n) => n.expanded = false,
-            Node::Text(_) => panic!("Shouldn't be text"),
-        }
-        println!("{:?}", sec);
-        assert_eq!("# A\n", sec.flatten(false));
+
+        sec.collapse(&[0usize]);
+        assert_eq!("# A\n", sec.string(false));
         assert_eq!(4, sec.len(false));
 
-        match &mut sec.children[0] {
-            Node::Section(n) => {
-                n.expanded = true;
-                match &mut n.children[1] {
-                    Node::Section(nn) => nn.expanded = false,
-                    _ => panic!("Shouldn't be text"),
-                }
-            }
-            _ => panic!("Shouldn't be text"),
-        }
-        println!("{:?}", sec);
-        assert_eq!("# A\n## B\nbbbbb\n## C\n", sec.flatten(false));
+        sec.expand(&[0usize]);
+        sec.collapse(&[0usize, 1usize]);
+        assert_eq!("# A\n## B\nbbbbb\n## C\n", sec.string(false));
         assert_eq!(20, sec.len(false));
     }
 
-    /*#[test]
+    #[test]
     fn test_insert() {
         let mut sec = Section::default();
         let example = "# A\n## B\nbbbbb\n## C\nccccc";
         sec.children = parse(example.to_string());
-        match &mut sec.children[0] {
-            Node::Section(n) => {
-                n.expanded = true;
-                match &mut n.children[0] {
-                    Node::Section(nn) => nn.expanded = false,
-                    _ => panic!("Shouldn't be text"),
-                }
-            }
-            _ => panic!("Shouldn't be text"),
-        }
-        sec.insert("d".to_string(), 15);
-        assert_eq!("# A\n## B\n## C\ncdcccc", sec.flatten(false));
-    }*/
+        sec.collapse(&[0usize, 0usize]);
+        println!("{}", sec.string(false));
+        sec.insert("d", 15);
+        assert_eq!("# A\n## B\n## C\ncdcccc", sec.string(false));
+    }
 
     #[test]
     fn test_translate() {
         let mut sec = Section::default();
         let example = "# A\n## B\nbbbbb\n## C\nccccc";
         sec.children = parse(example.to_string());
-        println!("{}", sec.flatten(false));
+        println!("{}", sec.string(false));
 
         assert_eq!(1, sec.translate(1));
         assert_eq!(2, sec.translate(2));
@@ -385,23 +379,14 @@ mod tests {
         assert_eq!(10, sec.translate(10));
         assert_eq!(example.len(), sec.translate(example.len()));
 
-        match &mut sec.children[0] {
-            Node::Section(n) => {
-                n.expanded = true;
-                match &mut n.children[0] {
-                    Node::Section(nn) => nn.expanded = false,
-                    _ => panic!("Shouldn't be text"),
-                }
-            }
-            _ => panic!("Shouldn't be text"),
-        }
-        println!("{}", sec.flatten(false));
+        sec.collapse(&[0usize, 0usize]);
+        println!("{}", sec.string(false));
         println!("testing 10, folded");
         assert_eq!(16, sec.translate(10));
     }
 
     #[test]
-    fn test_insert() {
+    fn test_note_insert() {
         let mut note = Note::new("# A\n\na\n".to_string());
         note.insert_text("#", 4);
         assert_eq!("# A\n#\na\n", note.as_str());

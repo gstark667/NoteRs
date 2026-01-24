@@ -1,12 +1,12 @@
 use eframe::egui;
-use eframe::egui::text::LayoutJob;
+use eframe::egui::text::{CCursorRange, LayoutJob};
 use eframe::egui::{Color32, Stroke, TextFormat};
 use regex::Regex;
 use std::path::PathBuf;
 use std::{env, fs};
 
 mod note;
-use crate::note::{Node, Note};
+use crate::note::Note;
 
 fn main() {
     let native_options = eframe::NativeOptions::default();
@@ -22,6 +22,7 @@ struct NoteRs {
     root: PathBuf,
     path: PathBuf,
     //text: String,
+    cursor_range: CCursorRange,
     note: Note,
     link_spans: Vec<(std::ops::Range<usize>, String)>,
 }
@@ -244,10 +245,20 @@ impl eframe::App for NoteRs {
                 .desired_width(f32::INFINITY)
                 .desired_rows(30)
                 .layouter(&mut layouter)
+                .id(egui::Id::new("editor"))
                 .show(ui);
 
             let response = editor.response;
             let galley = editor.galley;
+
+            if let Some(cursor_range) = editor.cursor_range {
+                if self.cursor_range.primary.index != cursor_range.primary.index
+                    || self.cursor_range.secondary.index != cursor_range.primary.index
+                {
+                    println!("cursor moved: {:?}", cursor_range);
+                }
+                self.cursor_range = cursor_range;
+            }
 
             if response.clicked() {
                 if let Some(pos) = response.interact_pointer_pos() {
@@ -272,22 +283,7 @@ impl eframe::App for NoteRs {
                 self.save_file();
             }
             if ctx.input_mut(|i| i.consume_key(egui::Modifiers::COMMAND, egui::Key::T)) {
-                match &mut self.note.root.children[0] {
-                    Node::Section(n) => {
-                        n.expanded = true;
-                        'outer: for c in &mut n.children {
-                            match c {
-                                Node::Section(nn) => {
-                                    nn.expanded = !nn.expanded;
-                                    println!("toggling");
-                                    break 'outer;
-                                }
-                                _ => continue,
-                            }
-                        }
-                    }
-                    _ => panic!("Shouldn't be text"),
-                }
+                // TODO: translate and toggle
                 self.note.refresh();
             }
         });
