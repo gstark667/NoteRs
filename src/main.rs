@@ -2,7 +2,6 @@ use eframe::egui::text::{CCursorRange, LayoutJob};
 use eframe::egui::{self, TextBuffer};
 use eframe::egui::{Color32, Stroke, TextFormat};
 use std::path::PathBuf;
-use std::rc::Rc;
 use std::{env, fs};
 
 mod note;
@@ -21,10 +20,10 @@ fn main() {
 struct NoteRs {
     root: PathBuf,
     path: PathBuf,
-    //text: String,
     cursor_range: CCursorRange,
     note: Note,
-    link_spans: Vec<(std::ops::Range<usize>, String)>,
+    nav_history: Vec<String>,
+    nav_forward: Vec<String>,
 }
 
 fn draw_normal(job: &mut LayoutJob, text: &String) {
@@ -165,30 +164,15 @@ impl NoteRs {
     }
 }
 
-/*pub trait AsAny {
-    fn as_any(&self) -> &dyn Any;
-    fn as_mut_any(&mut self) -> &mut dyn Any;
-}
-
-impl<T: Any> AsAny for dyn egui::TextBuffer {
-    fn as_any(&self) -> &dyn Any {
-        self
-    }
-
-    fn as_mut_any(&mut self) -> &mut dyn Any {
-        self
-    }
-}*/
-
 impl eframe::App for NoteRs {
     fn update(&mut self, ctx: &egui::Context, _: &mut eframe::Frame) {
         egui::CentralPanel::default().show(ctx, |ui| {
             ui.heading(self.path.display().to_string());
-            let markdown = self.note.markdown().clone();
             egui::ScrollArea::vertical().show(ui, |ui| {
                 let mut layouter = |ui: &egui::Ui, buf: &dyn TextBuffer, _wrap_width: f32| {
-                    // TODO: figure out the wacky AsAny downcast and use it here so the cursor stops flickering
-                    let job = render_markdown(markdown.clone());
+                    // TODO: consider how to make this faster than just reparsing the whole thing
+                    let new_note = Note::new(buf.as_str().to_string());
+                    let job = render_markdown(new_note.markdown());
 
                     ui.fonts_mut(|f| f.layout_job(job))
                 };
@@ -219,22 +203,49 @@ impl eframe::App for NoteRs {
                         let node = self.note.get_node(idx);
                         match node.mdtype {
                             MarkdownType::Link => {
+                                self.nav_history
+                                    .push(self.path.to_str().unwrap().to_string());
+                                self.nav_forward.clear();
                                 self.open_file(node.text[2..].to_string());
                             }
                             _ => {}
                         }
                     }
                 }
+                if ctx.input_mut(|i| i.consume_key(egui::Modifiers::COMMAND, egui::Key::S)) {
+                    self.save_file();
+                }
+                if ctx.input_mut(|i| i.consume_key(egui::Modifiers::COMMAND, egui::Key::T)) {
+                    // TODO: translate and toggle
+                    let path = self.note.path(self.cursor_range.primary.index);
+                    self.note.toggle(path.as_slice());
+                    self.note.refresh();
+                }
+                if ctx.input_mut(|i| i.consume_key(egui::Modifiers::ALT, egui::Key::ArrowLeft)) {
+                    println!("Nav back");
+
+                    match self.nav_history.pop() {
+                        Some::<String>(s) => {
+                            self.nav_forward
+                                .push(self.path.to_str().unwrap().to_string());
+                            self.open_file(s);
+                        }
+                        _ => {}
+                    }
+                }
+                if ctx.input_mut(|i| i.consume_key(egui::Modifiers::ALT, egui::Key::ArrowRight)) {
+                    println!("Nav forward {:?} {:?}", self.nav_history, self.nav_forward);
+
+                    match self.nav_forward.pop() {
+                        Some::<String>(s) => {
+                            self.nav_history
+                                .push(self.path.to_str().unwrap().to_string());
+                            self.open_file(s);
+                        }
+                        _ => {}
+                    }
+                }
             });
-            if ctx.input_mut(|i| i.consume_key(egui::Modifiers::COMMAND, egui::Key::S)) {
-                self.save_file();
-            }
-            if ctx.input_mut(|i| i.consume_key(egui::Modifiers::COMMAND, egui::Key::T)) {
-                // TODO: translate and toggle
-                let path = self.note.path(self.cursor_range.primary.index);
-                self.note.toggle(path.as_slice());
-                self.note.refresh();
-            }
         });
     }
 }
