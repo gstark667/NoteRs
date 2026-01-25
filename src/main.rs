@@ -74,98 +74,6 @@ fn draw_link(job: &mut LayoutJob, text: &String) {
     );
 }
 
-/*fn render_markdown(
-    text: &str,
-    link_spans: &mut Vec<(std::ops::Range<usize>, String)>,
-) -> LayoutJob {
-    link_spans.clear();
-
-    let regexes: [(Regex, &str, fn(&mut LayoutJob, &String)); 4] = [
-        (
-            Regex::new(r"(?m)^(#+)([^\n]+)$").unwrap(),
-            "heading",
-            draw_bold,
-        ),
-        (Regex::new(r"\*\*[^\*]+\*\*").unwrap(), "bold", draw_bold),
-        (Regex::new(r"_[^_]+_").unwrap(), "italic", draw_italic),
-        (
-            Regex::new(r"@@([\\/A-Za-z0-9_-]+)").unwrap(),
-            "link",
-            draw_link,
-        ),
-    ];
-
-    let mut job = LayoutJob::default();
-    let mut lines = text.split('\n').peekable();
-    let mut offset = 0;
-
-    while let Some(line) = lines.next() {
-        let is_last = lines.peek().is_none();
-        let mut t = String::from(line);
-
-        let mut first_match: Option<((usize, usize), &str, fn(&mut LayoutJob, &String))> = None;
-        let mut rerun = true;
-        while rerun {
-            rerun = false;
-            first_match = None;
-            for r in &regexes {
-                if let Some(mat) = r.0.find(t.as_str()) {
-                    let range = mat.range();
-
-                    // give up early if there was a match before this
-                    if let Some(first) = first_match
-                        && first.0.0 < range.start
-                    {
-                        continue;
-                    }
-
-                    first_match = Some(((range.start, range.end), r.1, r.2));
-                }
-            }
-
-            if let Some(first) = first_match {
-                if first.0.0 > 0 {
-                    let head: String = t[..first.0.0].to_string();
-                    draw_normal(&mut job, &head);
-                }
-                let data: String = t[first.0.0..first.0.1].to_string();
-                first.2(&mut job, &data);
-                t = t[first.0.1..].to_string();
-
-                // this is also a terrible solution, but works for now
-                if first.1 == "link" {
-                    link_spans.push((
-                        std::ops::Range {
-                            start: first.0.0 + offset,
-                            end: first.0.1 + offset,
-                        },
-                        data.chars().skip(2).take(data.len() - 2).collect(),
-                    ));
-                }
-                offset += data.len();
-                rerun = true;
-            }
-        }
-        if t.len() > 0 {
-            draw_normal(&mut job, &t);
-            offset += t.len();
-        }
-
-        if !is_last {
-            job.append(
-                "\n",
-                0.0,
-                TextFormat {
-                    color: Color32::from_rgb(255, 255, 255),
-                    ..Default::default()
-                },
-            );
-            offset += 1;
-        }
-    }
-    return job;
-}*/
-
 fn render_markdown(strings: Vec<MarkdownString>) -> LayoutJob {
     let mut job = LayoutJob::default();
 
@@ -176,6 +84,15 @@ fn render_markdown(strings: Vec<MarkdownString>) -> LayoutJob {
             }
             MarkdownType::Paragraph => {
                 draw_normal(&mut job, &s.text);
+            }
+            MarkdownType::Bold => {
+                draw_bold(&mut job, &s.text);
+            }
+            MarkdownType::Italic => {
+                draw_italic(&mut job, &s.text);
+            }
+            MarkdownType::Link => {
+                draw_link(&mut job, &s.text);
             }
             _ => {}
         }
@@ -271,8 +188,7 @@ impl eframe::App for NoteRs {
             egui::ScrollArea::vertical().show(ui, |ui| {
                 let markdown = self.note.markdown();
                 let mut layouter = |ui: &egui::Ui, buf: &dyn egui::TextBuffer, _wrap_width: f32| {
-                    //println!("{:?}", markdown);
-                    //let job = render_markdown(buf.as_str(), &mut self.link_spans);
+                    // TODO: figure out the wacky AsAny downcast and use it here so the cursor stops flickering
                     let job = render_markdown(markdown.clone());
 
                     ui.fonts_mut(|f| f.layout_job(job))
@@ -295,6 +211,7 @@ impl eframe::App for NoteRs {
                     self.cursor_range = cursor_range;
                 }
 
+                // TODO: add get_node to notes and use that for link/heading clicking
                 if response.clicked() {
                     if let Some(pos) = response.interact_pointer_pos() {
                         let local_pos = pos - response.rect.min;

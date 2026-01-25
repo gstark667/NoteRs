@@ -287,6 +287,74 @@ pub struct Note {
     repr: String,
 }
 
+fn parse_strings(text: String) -> Vec<Box<dyn Node>> {
+    let mut output: Vec<Box<dyn Node>> = vec![];
+    // TODO: handle the different types right
+    let regexes: [(Regex, MarkdownType); 3] = [
+        (Regex::new(r"\*\*[^\*]+\*\*").unwrap(), MarkdownType::Bold),
+        (Regex::new(r"_[^_]+_").unwrap(), MarkdownType::Italic),
+        (
+            Regex::new(r"@@([\\/A-Za-z0-9_-]+)").unwrap(),
+            MarkdownType::Link,
+        ),
+    ];
+
+    let mut lines = text.split('\n').peekable();
+
+    while let Some(line) = lines.next() {
+        let is_last = lines.peek().is_none();
+        let mut t = String::from(line);
+        if !is_last {
+            t += "\n";
+        }
+
+        let mut first_match: Option<((usize, usize), MarkdownType)> = None;
+        let mut rerun = true;
+        while rerun {
+            rerun = false;
+            first_match = None;
+            for r in &regexes {
+                if let Some(mat) = r.0.find(t.as_str()) {
+                    let range = mat.range();
+
+                    // give up early if there was a match before this
+                    if let Some(first) = &first_match
+                        && first.0.0 < range.start
+                    {
+                        continue;
+                    }
+
+                    first_match = Some(((range.start, range.end), r.1.clone()));
+                }
+            }
+
+            if let Some(first) = &first_match {
+                if first.0.0 > 0 {
+                    output.push(Box::new(MarkdownString {
+                        text: t[..first.0.0].to_string(),
+                        mdtype: MarkdownType::Paragraph,
+                    }));
+                }
+
+                output.push(Box::new(MarkdownString {
+                    text: t[first.0.0..first.0.1].to_string(),
+                    mdtype: first.1.clone(),
+                }));
+                t = t[first.0.1..].to_string();
+                rerun = true;
+            }
+        }
+
+        if t.len() > 0 {
+            output.push(Box::new(MarkdownString {
+                text: t,
+                mdtype: MarkdownType::Paragraph,
+            }));
+        }
+    }
+    return output;
+}
+
 fn parse(text: String) -> Vec<Box<dyn Node>> {
     let mut nodes: Vec<Box<dyn Node>> = Vec::new();
 
@@ -310,10 +378,9 @@ fn parse(text: String) -> Vec<Box<dyn Node>> {
             }
 
             if range.start > 0 {
-                nodes.push(Box::new(MarkdownString::new(
-                    text[..range.start].to_string(),
-                )));
+                nodes.extend(parse_strings(text[..range.start].to_string()));
             }
+
             continue;
         } else if caps.get(1).unwrap().len() > level {
             continue;
@@ -337,7 +404,8 @@ fn parse(text: String) -> Vec<Box<dyn Node>> {
     }
 
     if level == 0 {
-        nodes.push(Box::new(MarkdownString::new(text)));
+        nodes.extend(parse_strings(text));
+        //nodes.push(Box::new(MarkdownString::new(text)));
         return nodes;
     }
 
