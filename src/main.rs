@@ -1,9 +1,8 @@
-use eframe::egui;
 use eframe::egui::text::{CCursorRange, LayoutJob};
+use eframe::egui::{self, TextBuffer};
 use eframe::egui::{Color32, Stroke, TextFormat};
-use regex::Regex;
-use std::any::Any;
 use std::path::PathBuf;
+use std::rc::Rc;
 use std::{env, fs};
 
 mod note;
@@ -185,9 +184,9 @@ impl eframe::App for NoteRs {
     fn update(&mut self, ctx: &egui::Context, _: &mut eframe::Frame) {
         egui::CentralPanel::default().show(ctx, |ui| {
             ui.heading(self.path.display().to_string());
+            let markdown = self.note.markdown().clone();
             egui::ScrollArea::vertical().show(ui, |ui| {
-                let markdown = self.note.markdown();
-                let mut layouter = |ui: &egui::Ui, buf: &dyn egui::TextBuffer, _wrap_width: f32| {
+                let mut layouter = |ui: &egui::Ui, buf: &dyn TextBuffer, _wrap_width: f32| {
                     // TODO: figure out the wacky AsAny downcast and use it here so the cursor stops flickering
                     let job = render_markdown(markdown.clone());
 
@@ -211,23 +210,18 @@ impl eframe::App for NoteRs {
                     self.cursor_range = cursor_range;
                 }
 
-                // TODO: add get_node to notes and use that for link/heading clicking
                 if response.clicked() {
                     if let Some(pos) = response.interact_pointer_pos() {
                         let local_pos = pos - response.rect.min;
                         let cursor = galley.cursor_from_pos(local_pos);
                         let idx = cursor.index;
 
-                        let mut to_open: Option<String> = None;
-                        for (range, keyword) in &self.link_spans {
-                            if range.contains(&idx) {
-                                to_open = Some(keyword.to_string());
-                                break;
+                        let node = self.note.get_node(idx);
+                        match node.mdtype {
+                            MarkdownType::Link => {
+                                self.open_file(node.text[2..].to_string());
                             }
-                        }
-
-                        if let Some(path) = to_open {
-                            self.open_file(path)
+                            _ => {}
                         }
                     }
                 }

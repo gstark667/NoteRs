@@ -55,6 +55,7 @@ trait Node: Debug {
     fn expand(&mut self, path: &[usize]);
     fn path(&self, pos: usize) -> Vec<usize>;
     fn markdown(&self) -> Vec<MarkdownString>;
+    fn get_node(&self, pos: usize) -> MarkdownString;
 }
 
 impl Node for MarkdownString {
@@ -101,6 +102,10 @@ impl Node for MarkdownString {
 
     fn markdown(&self) -> Vec<MarkdownString> {
         return vec![self.clone()];
+    }
+
+    fn get_node(&self, _: usize) -> MarkdownString {
+        return self.clone();
     }
 }
 
@@ -278,6 +283,34 @@ impl Node for Section {
 
         return md;
     }
+
+    fn get_node(&self, pos: usize) -> MarkdownString {
+        let mut cur = self.level + self.heading.len();
+        if pos < cur {
+            let mut hstring = "".to_string();
+            for _ in 0..self.level {
+                hstring += "#";
+            }
+            hstring += &self.heading;
+
+            return MarkdownString {
+                text: hstring,
+                mdtype: self.md_type(),
+            };
+        }
+
+        for n in &self.children {
+            let len = n.len(false);
+            if pos <= cur + len {
+                return n.get_node(pos - cur);
+            }
+            cur += len;
+        }
+        return MarkdownString {
+            text: "".to_string(),
+            mdtype: MarkdownType::None,
+        };
+    }
 }
 
 #[derive(Debug)]
@@ -453,6 +486,10 @@ impl Note {
 
     pub fn markdown(&self) -> Vec<MarkdownString> {
         self.root.markdown()
+    }
+
+    pub fn get_node(&self, pos: usize) -> MarkdownString {
+        self.root.get_node(pos)
     }
 }
 
