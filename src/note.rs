@@ -4,12 +4,13 @@ use std::any::TypeId;
 use std::fmt::Debug;
 
 #[derive(Clone, Debug, PartialEq)]
-enum MarkdownType {
+pub enum MarkdownType {
     None,
     Heading,
     Paragraph,
     Bold,
     Italic,
+    Link,
 }
 
 #[derive(Clone, Debug, PartialEq)]
@@ -28,9 +29,9 @@ pub struct Section {
 }
 
 #[derive(Clone, Debug)]
-struct MarkdownString {
-    text: String,
-    mdtype: MarkdownType,
+pub struct MarkdownString {
+    pub text: String,
+    pub mdtype: MarkdownType,
 }
 
 impl MarkdownString {
@@ -269,14 +270,17 @@ impl Node for Section {
             mdtype: MarkdownType::Heading,
         }];
 
-        for c in &self.children {
-            md.append(&mut c.markdown());
+        if self.expanded {
+            for c in &self.children {
+                md.append(&mut c.markdown());
+            }
         }
 
         return md;
     }
 }
 
+#[derive(Debug)]
 pub struct Note {
     internal: String,
     pub root: Section,
@@ -377,6 +381,10 @@ impl Note {
 
     pub fn toggle(&mut self, path: &[usize]) {
         self.root.toggle(path);
+    }
+
+    pub fn markdown(&self) -> Vec<MarkdownString> {
+        self.root.markdown()
     }
 }
 

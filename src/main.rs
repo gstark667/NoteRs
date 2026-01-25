@@ -2,11 +2,12 @@ use eframe::egui;
 use eframe::egui::text::{CCursorRange, LayoutJob};
 use eframe::egui::{Color32, Stroke, TextFormat};
 use regex::Regex;
+use std::any::Any;
 use std::path::PathBuf;
 use std::{env, fs};
 
 mod note;
-use crate::note::Note;
+use crate::note::{MarkdownString, MarkdownType, Note};
 
 fn main() {
     let native_options = eframe::NativeOptions::default();
@@ -73,7 +74,7 @@ fn draw_link(job: &mut LayoutJob, text: &String) {
     );
 }
 
-fn render_markdown(
+/*fn render_markdown(
     text: &str,
     link_spans: &mut Vec<(std::ops::Range<usize>, String)>,
 ) -> LayoutJob {
@@ -163,6 +164,23 @@ fn render_markdown(
         }
     }
     return job;
+}*/
+
+fn render_markdown(strings: Vec<MarkdownString>) -> LayoutJob {
+    let mut job = LayoutJob::default();
+
+    for s in strings {
+        match s.mdtype {
+            MarkdownType::Heading => {
+                draw_bold(&mut job, &s.text);
+            }
+            MarkdownType::Paragraph => {
+                draw_normal(&mut job, &s.text);
+            }
+            _ => {}
+        }
+    }
+    return job;
 }
 
 impl NoteRs {
@@ -231,13 +249,31 @@ impl NoteRs {
     }
 }
 
+/*pub trait AsAny {
+    fn as_any(&self) -> &dyn Any;
+    fn as_mut_any(&mut self) -> &mut dyn Any;
+}
+
+impl<T: Any> AsAny for dyn egui::TextBuffer {
+    fn as_any(&self) -> &dyn Any {
+        self
+    }
+
+    fn as_mut_any(&mut self) -> &mut dyn Any {
+        self
+    }
+}*/
+
 impl eframe::App for NoteRs {
     fn update(&mut self, ctx: &egui::Context, _: &mut eframe::Frame) {
         egui::CentralPanel::default().show(ctx, |ui| {
             ui.heading(self.path.display().to_string());
             egui::ScrollArea::vertical().show(ui, |ui| {
+                let markdown = self.note.markdown();
                 let mut layouter = |ui: &egui::Ui, buf: &dyn egui::TextBuffer, _wrap_width: f32| {
-                    let job = render_markdown(buf.as_str(), &mut self.link_spans);
+                    //println!("{:?}", markdown);
+                    //let job = render_markdown(buf.as_str(), &mut self.link_spans);
+                    let job = render_markdown(markdown.clone());
 
                     ui.fonts_mut(|f| f.layout_job(job))
                 };
