@@ -1,6 +1,9 @@
+use cssparser_color::Color;
 use eframe::egui::text::{CCursorRange, LayoutJob};
+use eframe::egui::text_edit::TextEditState;
 use eframe::egui::{self, TextBuffer};
-use eframe::egui::{Color32, Stroke, TextFormat};
+use eframe::egui::{Color32, Stroke, TextFormat, Visuals};
+use std::collections::HashMap;
 use std::path::PathBuf;
 use std::{env, fs};
 
@@ -8,6 +11,7 @@ mod note;
 use crate::note::{MarkdownString, MarkdownType, Note};
 
 fn main() {
+    println!("{:?}", linux_theme::gtk::current::current());
     let native_options = eframe::NativeOptions::default();
     eframe::run_native(
         "NoteRs",
@@ -24,6 +28,8 @@ struct NoteRs {
     note: Note,
     nav_history: Vec<String>,
     nav_forward: Vec<String>,
+    bg_color: Color32,
+    fg_color: Color32,
 }
 
 fn draw_normal(job: &mut LayoutJob, text: &String) {
@@ -98,6 +104,13 @@ fn render_markdown(strings: Vec<MarkdownString>) -> LayoutJob {
     return job;
 }
 
+fn make_color32(inp: &Color) -> Color32 {
+    match inp {
+        Color::Rgba(rgba) => Color32::from_rgb(rgba.red, rgba.green, rgba.blue),
+        _ => Color32::TRANSPARENT,
+    }
+}
+
 impl NoteRs {
     fn new(cc: &eframe::CreationContext<'_>) -> Self {
         // Customize egui here with cc.egui_ctx.set_fonts and cc.egui_ctx.set_visuals.
@@ -112,7 +125,19 @@ impl NoteRs {
             }
             None => println!("Impossible to get your home dir!"),
         }
+
+        // TODO: figure out a qt way to do this too
+        let colors = linux_theme::gtk::current::current().0;
+        new_one.bg_color = make_color32(colors.get("window_bg_color").unwrap());
         new_one.open_file("index.md".to_string());
+
+        let mut visuals = Visuals::dark();
+        visuals.window_fill = new_one.bg_color;
+        visuals.panel_fill = new_one.bg_color;
+        cc.egui_ctx.set_visuals(visuals);
+
+        println!("{:?}", new_one.bg_color);
+
         return new_one;
     }
 
@@ -167,6 +192,7 @@ impl NoteRs {
 impl eframe::App for NoteRs {
     fn update(&mut self, ctx: &egui::Context, _: &mut eframe::Frame) {
         egui::CentralPanel::default().show(ctx, |ui| {
+            let text_edit_id = ui.make_persistent_id("editor");
             ui.heading(self.path.display().to_string());
             egui::ScrollArea::vertical().show(ui, |ui| {
                 let mut layouter = |ui: &egui::Ui, buf: &dyn TextBuffer, _wrap_width: f32| {
@@ -180,7 +206,7 @@ impl eframe::App for NoteRs {
                     .desired_width(f32::INFINITY)
                     .desired_rows((ctx.content_rect().height() / 16f32) as usize)
                     .layouter(&mut layouter)
-                    .id(egui::Id::new("editor"))
+                    .id(text_edit_id)
                     .show(ui);
                 let response = editor.response;
                 let galley = editor.galley;
@@ -218,8 +244,27 @@ impl eframe::App for NoteRs {
                 if ctx.input_mut(|i| i.consume_key(egui::Modifiers::COMMAND, egui::Key::T)) {
                     // TODO: translate and toggle
                     let path = self.note.path(self.cursor_range.primary.index);
+                    let mut global_cursor = (
+                        self.note.translate(self.cursor_range.primary.index),
+                        self.note.translate(self.cursor_range.secondary.index),
+                    );
                     self.note.toggle(path.as_slice());
                     self.note.refresh();
+                    global_cursor.0 = self.note.inv_translate(global_cursor.0);
+                    global_cursor.1 = self.note.inv_translate(global_cursor.1);
+
+                    println!("updating cursor to: {:?}", editor.cursor_range);
+
+                    if let Some(mut state) = TextEditState::load(ui.ctx(), text_edit_id) {
+                        // Move cursor to position 10
+                        //let cursor = editor.cursor_range; //CCursorRange::one(egui::text::CCursor::new(10));
+                        println!("really updating");
+                        state.cursor.set_char_range(Some(CCursorRange::two(
+                            egui::text::CCursor::new(global_cursor.0),
+                            egui::text::CCursor::new(global_cursor.1),
+                        )));
+                        state.store(ui.ctx(), text_edit_id);
+                    }
                 }
                 if ctx.input_mut(|i| i.consume_key(egui::Modifiers::ALT, egui::Key::ArrowLeft)) {
                     println!("Nav back");

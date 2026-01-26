@@ -49,7 +49,8 @@ trait Node: Debug {
     fn len(&self, flatten: bool) -> usize;
     fn string(&self, flatten: bool) -> String;
     fn insert(&mut self, text: &str, pos: usize) -> bool;
-    fn translate(&mut self, pos: usize) -> usize;
+    fn translate(&self, pos: usize) -> usize;
+    fn inv_translate(&self, pos: usize) -> usize;
     fn toggle(&mut self, path: &[usize]);
     fn collapse(&mut self, path: &[usize]);
     fn expand(&mut self, path: &[usize]);
@@ -80,7 +81,11 @@ impl Node for MarkdownString {
         return true;
     }
 
-    fn translate(&mut self, pos: usize) -> usize {
+    fn translate(&self, pos: usize) -> usize {
+        return pos;
+    }
+
+    fn inv_translate(&self, pos: usize) -> usize {
         return pos;
     }
 
@@ -191,7 +196,7 @@ impl Node for Section {
         return false;
     }
 
-    fn translate(&mut self, pos: usize) -> usize {
+    fn translate(&self, pos: usize) -> usize {
         let mut cur = 0;
         if self.level > 0 {
             cur += self.level + 1 + self.heading.len();
@@ -202,7 +207,7 @@ impl Node for Section {
 
         let mut offset = 0;
         if self.expanded {
-            for n in &mut self.children {
+            for n in &self.children {
                 let display_len = n.len(false);
                 if pos - cur < display_len {
                     return n.translate(pos - cur) + cur + offset;
@@ -212,6 +217,34 @@ impl Node for Section {
             }
         }
         return pos + offset;
+    }
+
+    fn inv_translate(&self, pos: usize) -> usize {
+        let mut cur = 0;
+        if self.level > 0 {
+            cur += self.level + self.heading.len();
+            if pos < cur {
+                return pos;
+            }
+        }
+
+        // just assume we're inside this section since the parent wouldn't have called if we weren't
+        if !self.expanded {
+            // heading text contains a newline, remove this if that changes
+            return cur - 1;
+        }
+
+        let mut offset = 0;
+        for n in &self.children {
+            let full_len = n.len(true);
+            if pos - cur < full_len {
+                return n.inv_translate(pos - cur) + cur - offset;
+            }
+            cur += full_len;
+            offset += full_len - n.len(false);
+        }
+
+        return cur - offset;
     }
 
     //fn delete(&mut self, range: std::ops::Range<usize>) {}
@@ -491,6 +524,14 @@ impl Note {
     pub fn get_node(&self, pos: usize) -> MarkdownString {
         self.root.get_node(pos)
     }
+
+    pub fn translate(&self, pos: usize) -> usize {
+        self.root.translate(pos)
+    }
+
+    pub fn inv_translate(&self, pos: usize) -> usize {
+        self.root.inv_translate(pos)
+    }
 }
 
 impl Default for Note {
@@ -626,6 +667,8 @@ mod tests {
         println!("{}", sec.string(false));
         println!("testing 10, folded");
         assert_eq!(16, sec.translate(10));
+        assert_eq!(8, sec.inv_translate(11));
+        assert_eq!(11, sec.inv_translate(17));
     }
 
     #[test]

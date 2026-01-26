@@ -5,4 +5,6 @@ edition = "2024"
 
 [dependencies]
 eframe = "0.33.3"
+linux_theme = {version = "0.2.1", features = ["cssparser-color"]}
 regex = "1.12.2"
+cssparser-color = { version = "0.1.0" }
