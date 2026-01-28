@@ -364,24 +364,27 @@ pub struct Note {
 fn parse_strings(text: String) -> Vec<Box<dyn Node>> {
     let mut output: Vec<Box<dyn Node>> = vec![];
     // TODO: handle the different types right
-    let regexes: [(Regex, MarkdownType); 4] = [
-        (Regex::new(r"\*\*[^\*]*\*\*").unwrap(), MarkdownType::Bold),
-        (Regex::new(r"_[^_]*_").unwrap(), MarkdownType::Italic),
+    let regexes: [(Regex, MarkdownType); 5] = [
+        (Regex::new(r"\*\*[^\*\n]*\*\*").unwrap(), MarkdownType::Bold),
+        (Regex::new(r"_[^_\n]*_").unwrap(), MarkdownType::Italic),
         (
             Regex::new(r"@@([\\/A-Za-z0-9_-]+)").unwrap(),
             MarkdownType::Link,
         ),
-        (Regex::new(r"`[^`]*`").unwrap(), MarkdownType::Monospace),
+        (Regex::new(r"`[^\n]*`").unwrap(), MarkdownType::Monospace),
+        (Regex::new(r"(?ms)```.*```").unwrap(), MarkdownType::Code),
     ];
 
-    let mut lines = text.split('\n').peekable();
+    //let mut lines = text.split('\n').peekable();
+    let mut t = text;
 
-    while let Some(line) = lines.next() {
-        let is_last = lines.peek().is_none();
-        let mut t = String::from(line);
-        if !is_last {
+    //while let Some(line) = lines.next() {
+    while t.len() > 0 {
+        //let is_last = lines.peek().is_none();
+        //let mut t = String::from(line);
+        /*if !is_last {
             t += "\n";
-        }
+        }*/
 
         let mut first_match: Option<((usize, usize), MarkdownType)> = None;
         let mut rerun = true;
@@ -422,9 +425,10 @@ fn parse_strings(text: String) -> Vec<Box<dyn Node>> {
 
         if t.len() > 0 {
             output.push(Box::new(MarkdownString {
-                text: t,
+                text: t.clone(),
                 mdtype: MarkdownType::Paragraph,
             }));
+            break;
         }
     }
     return output;
@@ -517,8 +521,9 @@ impl Note {
         return tmp;
     }
 
-    pub fn full(&self) -> &str {
-        return self.internal.as_str();
+    pub fn full(&mut self) -> &str {
+        self.internal = self.root.string(true);
+        return &self.internal;
     }
 
     pub fn refresh(&mut self) {
@@ -637,6 +642,11 @@ mod tests {
         sec.children = parse(example.to_string());
         println!("{:?}", sec);
         assert_eq!(example, sec.string(true));
+
+        example = "# A\n\n## B\n\na\n";
+        sec.children = parse(example.to_string());
+        println!("{:?}", sec);
+        assert_eq!(example, sec.string(true));
     }
 
     #[test]
@@ -711,11 +721,11 @@ mod tests {
         sec.children = parse(example.to_string());
 
         let md = sec.markdown();
-        assert_eq!(MarkdownType::Heading, md[0].mdtype);
-        assert_eq!(MarkdownType::Heading, md[1].mdtype);
-        assert_eq!(MarkdownType::Heading, md[2].mdtype);
+        assert_eq!(MarkdownType::Heading3, md[0].mdtype);
+        assert_eq!(MarkdownType::Heading1, md[1].mdtype);
+        assert_eq!(MarkdownType::Heading2, md[2].mdtype);
         assert_eq!(MarkdownType::Paragraph, md[3].mdtype);
-        assert_eq!(MarkdownType::Heading, md[4].mdtype);
+        assert_eq!(MarkdownType::Heading2, md[4].mdtype);
         assert_eq!(MarkdownType::Paragraph, md[5].mdtype);
     }
 }

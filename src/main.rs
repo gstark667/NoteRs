@@ -37,7 +37,7 @@ fn draw_normal(job: &mut LayoutJob, text: &String) {
         text,
         0.0,
         TextFormat {
-            color: Color32::from_rgb(120, 120, 120),
+            color: Color32::from_rgb(180, 180, 180),
             ..Default::default()
         },
     );
@@ -59,7 +59,7 @@ fn draw_italic(job: &mut LayoutJob, text: &String) {
         text,
         0.0,
         TextFormat {
-            color: Color32::from_rgb(180, 180, 180),
+            color: Color32::from_rgb(200, 200, 200),
             italics: true,
             ..Default::default()
         },
@@ -75,7 +75,7 @@ fn draw_monospace(job: &mut LayoutJob, text: &String) {
                 size: 12.0,
                 family: FontFamily::Monospace,
             },
-            color: Color32::from_rgb(180, 180, 180),
+            color: Color32::from_rgb(200, 200, 200),
             ..Default::default()
         },
     );
@@ -226,7 +226,10 @@ impl NoteRs {
         println!("opening {}", self.path.display());
         if self.path.exists() {
             match fs::read_to_string(self.path.as_path()) {
-                Ok(text) => self.note = Note::new(text),
+                Ok(text) => {
+                    println!("`\n{}\n`", text);
+                    self.note = Note::new(text)
+                }
                 Err(e) => println!("error opening file: {e:?}"),
             }
 
@@ -236,7 +239,7 @@ impl NoteRs {
         }
     }
 
-    fn save_file(&self) {
+    fn save_file(&mut self) {
         let text = self.note.full();
         println!("Writing {}: {}", self.path.display(), text);
         fs::write(self.path.as_path(), text.as_bytes());
