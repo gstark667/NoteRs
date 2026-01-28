@@ -6,11 +6,15 @@ use std::fmt::Debug;
 #[derive(Clone, Debug, PartialEq)]
 pub enum MarkdownType {
     None,
-    Heading,
+    Heading1,
+    Heading2,
+    Heading3,
     Paragraph,
     Bold,
     Italic,
     Link,
+    Monospace,
+    Code,
 }
 
 #[derive(Clone, Debug, PartialEq)]
@@ -305,7 +309,11 @@ impl Node for Section {
 
         let mut md = vec![MarkdownString {
             text: hstring,
-            mdtype: MarkdownType::Heading,
+            mdtype: match self.level {
+                1 => MarkdownType::Heading1,
+                2 => MarkdownType::Heading2,
+                _ => MarkdownType::Heading3,
+            },
         }];
 
         if self.expanded {
@@ -356,13 +364,14 @@ pub struct Note {
 fn parse_strings(text: String) -> Vec<Box<dyn Node>> {
     let mut output: Vec<Box<dyn Node>> = vec![];
     // TODO: handle the different types right
-    let regexes: [(Regex, MarkdownType); 3] = [
-        (Regex::new(r"\*\*[^\*]+\*\*").unwrap(), MarkdownType::Bold),
-        (Regex::new(r"_[^_]+_").unwrap(), MarkdownType::Italic),
+    let regexes: [(Regex, MarkdownType); 4] = [
+        (Regex::new(r"\*\*[^\*]*\*\*").unwrap(), MarkdownType::Bold),
+        (Regex::new(r"_[^_]*_").unwrap(), MarkdownType::Italic),
         (
             Regex::new(r"@@([\\/A-Za-z0-9_-]+)").unwrap(),
             MarkdownType::Link,
         ),
+        (Regex::new(r"`[^`]*`").unwrap(), MarkdownType::Monospace),
     ];
 
     let mut lines = text.split('\n').peekable();
@@ -457,7 +466,11 @@ fn parse(text: String) -> Vec<Box<dyn Node>> {
             heading: heading,
             expanded: true,
             level: level,
-            mdtype: MarkdownType::Heading,
+            mdtype: match level {
+                1 => MarkdownType::Heading1,
+                2 => MarkdownType::Heading2,
+                _ => MarkdownType::Heading3,
+            },
             children: parse(text[pos..range.start].to_string()),
         }));
         heading = caps.get(2).unwrap().as_str().to_string();
@@ -481,7 +494,11 @@ fn parse(text: String) -> Vec<Box<dyn Node>> {
         heading: heading,
         expanded: true,
         level: level,
-        mdtype: MarkdownType::Heading,
+        mdtype: match level {
+            1 => MarkdownType::Heading1,
+            2 => MarkdownType::Heading2,
+            _ => MarkdownType::Heading3,
+        },
         children: parse(text[pos..].to_string()),
     }));
 

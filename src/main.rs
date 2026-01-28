@@ -2,7 +2,7 @@ use cssparser_color::Color;
 use eframe::egui::text::{CCursorRange, LayoutJob};
 use eframe::egui::text_edit::TextEditState;
 use eframe::egui::{self, TextBuffer};
-use eframe::egui::{Color32, Stroke, TextFormat, Visuals};
+use eframe::egui::{Color32, FontFamily, FontId, Stroke, TextFormat, Visuals};
 use std::collections::HashMap;
 use std::path::PathBuf;
 use std::{env, fs};
@@ -66,6 +66,45 @@ fn draw_italic(job: &mut LayoutJob, text: &String) {
     );
 }
 
+fn draw_monospace(job: &mut LayoutJob, text: &String) {
+    job.append(
+        text,
+        0.0,
+        TextFormat {
+            font_id: FontId {
+                size: 12.0,
+                family: FontFamily::Monospace,
+            },
+            color: Color32::from_rgb(180, 180, 180),
+            ..Default::default()
+        },
+    );
+}
+
+fn draw_heading(job: &mut LayoutJob, text: &String, level: usize) {
+    job.append(
+        text,
+        0.0,
+        TextFormat {
+            font_id: FontId {
+                size: match level {
+                    1 => 32.0,
+                    2 => 24.0,
+                    _ => 16.0,
+                },
+                family: FontFamily::Proportional,
+            },
+            color: Color32::from_rgb(255, 255, 255),
+            line_height: Some(match level {
+                1 => 36.0,
+                2 => 28.0,
+                _ => 20.0,
+            }),
+            ..Default::default()
+        },
+    );
+}
+
 fn draw_link(job: &mut LayoutJob, text: &String) {
     job.append(
         &text,
@@ -83,8 +122,14 @@ fn render_markdown(strings: Vec<MarkdownString>) -> LayoutJob {
 
     for s in strings {
         match s.mdtype {
-            MarkdownType::Heading => {
-                draw_bold(&mut job, &s.text);
+            MarkdownType::Heading1 => {
+                draw_heading(&mut job, &s.text, 1);
+            }
+            MarkdownType::Heading2 => {
+                draw_heading(&mut job, &s.text, 2);
+            }
+            MarkdownType::Heading3 => {
+                draw_heading(&mut job, &s.text, 3);
             }
             MarkdownType::Paragraph => {
                 draw_normal(&mut job, &s.text);
@@ -97,6 +142,12 @@ fn render_markdown(strings: Vec<MarkdownString>) -> LayoutJob {
             }
             MarkdownType::Link => {
                 draw_link(&mut job, &s.text);
+            }
+            MarkdownType::Monospace => {
+                draw_monospace(&mut job, &s.text);
+            }
+            MarkdownType::Code => {
+                draw_monospace(&mut job, &s.text);
             }
             _ => {}
         }
@@ -128,7 +179,10 @@ impl NoteRs {
 
         // TODO: figure out a qt way to do this too
         let colors = linux_theme::gtk::current::current().0;
-        new_one.bg_color = make_color32(colors.get("window_bg_color").unwrap());
+        //new_one.bg_color = make_color32(colors.get("window_bg_color").unwrap());
+        // TODO: pull these in using a qt lib/detect GTK and use other lib
+        new_one.bg_color = Color32::from_rgb(30, 32, 48);
+        new_one.fg_color = Color32::from_rgb(202, 211, 248);
         new_one.open_file("index.md".to_string());
 
         let mut visuals = Visuals::dark();
