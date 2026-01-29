@@ -2,13 +2,13 @@ use cssparser_color::Color;
 use eframe::egui::text::{CCursorRange, LayoutJob};
 use eframe::egui::text_edit::TextEditState;
 use eframe::egui::{self, TextBuffer};
-use eframe::egui::{Color32, FontFamily, FontId, Stroke, TextFormat, Visuals};
+use eframe::egui::{Color32, CursorIcon, FontFamily, FontId, Stroke, TextFormat, Visuals};
 use std::collections::HashMap;
 use std::path::PathBuf;
 use std::{env, fs};
 
 mod note;
-use crate::note::{MarkdownString, MarkdownType, Note};
+use crate::note::{MarkdownStr, MarkdownType, Note, highlight_parse};
 
 fn main() {
     println!("{:?}", linux_theme::gtk::current::current());
@@ -32,7 +32,7 @@ struct NoteRs {
     fg_color: Color32,
 }
 
-fn draw_normal(job: &mut LayoutJob, text: &String) {
+fn draw_normal(job: &mut LayoutJob, text: &str) {
     job.append(
         text,
         0.0,
@@ -43,7 +43,7 @@ fn draw_normal(job: &mut LayoutJob, text: &String) {
     );
 }
 
-fn draw_bold(job: &mut LayoutJob, text: &String) {
+fn draw_bold(job: &mut LayoutJob, text: &str) {
     job.append(
         text,
         0.0,
@@ -54,7 +54,7 @@ fn draw_bold(job: &mut LayoutJob, text: &String) {
     );
 }
 
-fn draw_italic(job: &mut LayoutJob, text: &String) {
+fn draw_italic(job: &mut LayoutJob, text: &str) {
     job.append(
         text,
         0.0,
@@ -66,7 +66,7 @@ fn draw_italic(job: &mut LayoutJob, text: &String) {
     );
 }
 
-fn draw_monospace(job: &mut LayoutJob, text: &String) {
+fn draw_monospace(job: &mut LayoutJob, text: &str) {
     job.append(
         text,
         0.0,
@@ -81,7 +81,7 @@ fn draw_monospace(job: &mut LayoutJob, text: &String) {
     );
 }
 
-fn draw_heading(job: &mut LayoutJob, text: &String, level: usize) {
+fn draw_heading(job: &mut LayoutJob, text: &str, level: usize) {
     job.append(
         text,
         0.0,
@@ -105,7 +105,7 @@ fn draw_heading(job: &mut LayoutJob, text: &String, level: usize) {
     );
 }
 
-fn draw_link(job: &mut LayoutJob, text: &String) {
+fn draw_link(job: &mut LayoutJob, text: &str) {
     job.append(
         &text,
         0.0,
@@ -117,7 +117,7 @@ fn draw_link(job: &mut LayoutJob, text: &String) {
     );
 }
 
-fn render_markdown(strings: Vec<MarkdownString>) -> LayoutJob {
+fn render_markdown(strings: Vec<MarkdownStr<'_>>) -> LayoutJob {
     let mut job = LayoutJob::default();
 
     for s in strings {
@@ -232,8 +232,6 @@ impl NoteRs {
                 }
                 Err(e) => println!("error opening file: {e:?}"),
             }
-
-            //.expect("Should have been able to read the file");
         } else {
             self.note = Note::default();
         }
@@ -254,8 +252,9 @@ impl eframe::App for NoteRs {
             egui::ScrollArea::vertical().show(ui, |ui| {
                 let mut layouter = |ui: &egui::Ui, buf: &dyn TextBuffer, _wrap_width: f32| {
                     // TODO: consider how to make this faster than just reparsing the whole thing
-                    let new_note = Note::new(buf.as_str().to_string());
-                    let job = render_markdown(new_note.markdown());
+                    //let new_note = Note::new(buf.as_str().to_string());
+                    //let job = render_markdown(new_note.markdown());
+                    let job = render_markdown(highlight_parse(buf.as_str()));
 
                     ui.fonts_mut(|f| f.layout_job(job))
                 };
@@ -294,7 +293,25 @@ impl eframe::App for NoteRs {
                             _ => {}
                         }
                     }
+                } else {
+                    // change the cursor icon when moving the mouse
+                    if let Some(p) = ctx.input_mut(|i| i.pointer.hover_pos()) {
+                        let local_pos = p - response.rect.min;
+                        let cursor = galley.cursor_from_pos(local_pos);
+                        let idx = cursor.index;
+                        let node = self.note.get_node(idx);
+                        match node.mdtype {
+                            MarkdownType::Link
+                            | MarkdownType::Heading1
+                            | MarkdownType::Heading2
+                            | MarkdownType::Heading3 => {
+                                ctx.output_mut(|out| out.cursor_icon = CursorIcon::PointingHand)
+                            }
+                            _ => {}
+                        }
+                    }
                 }
+
                 if ctx.input_mut(|i| i.consume_key(egui::Modifiers::COMMAND, egui::Key::S)) {
                     self.save_file();
                 }

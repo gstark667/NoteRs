@@ -38,6 +38,12 @@ pub struct MarkdownString {
     pub mdtype: MarkdownType,
 }
 
+#[derive(Debug)]
+pub struct MarkdownStr<'a> {
+    pub text: &'a str,
+    pub mdtype: MarkdownType,
+}
+
 impl MarkdownString {
     pub fn new(content: String) -> Self {
         return Self {
@@ -342,7 +348,7 @@ impl Node for Section {
 
         for n in &self.children {
             let len = n.len(false);
-            if pos <= cur + len {
+            if pos < cur + len {
                 return n.get_node(pos - cur);
             }
             cur += len;
@@ -428,6 +434,83 @@ fn parse_strings(text: String) -> Vec<Box<dyn Node>> {
                 text: t.clone(),
                 mdtype: MarkdownType::Paragraph,
             }));
+            break;
+        }
+    }
+    return output;
+}
+
+// TODO: This is also awful, need to make this parser that keeps showing up into a template with a callback
+pub fn highlight_parse(text: &str) -> Vec<MarkdownStr<'_>> {
+    let mut output: Vec<MarkdownStr> = vec![];
+
+    let regexes: [(Regex, MarkdownType); 8] = [
+        (
+            Regex::new(r"(?m)^# [^\n]+$").unwrap(),
+            MarkdownType::Heading1,
+        ),
+        (
+            Regex::new(r"(?m)^## [^\n]+$").unwrap(),
+            MarkdownType::Heading2,
+        ),
+        (
+            Regex::new(r"(?m)^### [^\n]+$").unwrap(),
+            MarkdownType::Heading3,
+        ),
+        (Regex::new(r"\*\*[^\*\n]*\*\*").unwrap(), MarkdownType::Bold),
+        (Regex::new(r"_[^_\n]*_").unwrap(), MarkdownType::Italic),
+        (
+            Regex::new(r"@@([\\/A-Za-z0-9_-]+)").unwrap(),
+            MarkdownType::Link,
+        ),
+        (Regex::new(r"`[^\n]*`").unwrap(), MarkdownType::Monospace),
+        (Regex::new(r"(?ms)```.*```").unwrap(), MarkdownType::Code),
+    ];
+
+    let mut t = text;
+    while t.len() > 0 {
+        let mut first_match: Option<((usize, usize), MarkdownType)> = None;
+        let mut rerun = true;
+        while rerun {
+            rerun = false;
+            first_match = None;
+            for r in &regexes {
+                if let Some(mat) = r.0.find(t) {
+                    let range = mat.range();
+
+                    // give up early if there was a match before this
+                    if let Some(first) = &first_match
+                        && first.0.0 < range.start
+                    {
+                        continue;
+                    }
+
+                    first_match = Some(((range.start, range.end), r.1.clone()));
+                }
+            }
+
+            if let Some(first) = &first_match {
+                if first.0.0 > 0 {
+                    output.push(MarkdownStr {
+                        text: &t[..first.0.0],
+                        mdtype: MarkdownType::Paragraph,
+                    });
+                }
+
+                output.push(MarkdownStr {
+                    text: &t[first.0.0..first.0.1],
+                    mdtype: first.1.clone(),
+                });
+                t = &t[first.0.1..];
+                rerun = true;
+            }
+        }
+
+        if t.len() > 0 {
+            output.push(MarkdownStr {
+                text: &t,
+                mdtype: MarkdownType::Paragraph,
+            });
             break;
         }
     }
