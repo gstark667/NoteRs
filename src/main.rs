@@ -319,7 +319,7 @@ impl eframe::App for NoteRs {
                                 painter.text(
                                     galley.pos_from_cursor(CCursor::new(index)).min,
                                     egui::Align2::LEFT_TOP,
-                                    if true { ">" } else { "V" },
+                                    if item.expanded { "V" } else { ">" },
                                     egui::FontId::default(),
                                     ui.visuals().text_color(),
                                 );

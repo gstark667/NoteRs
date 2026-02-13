@@ -325,7 +325,7 @@ impl Node for Section {
                 2 => MarkdownType::Heading2,
                 _ => MarkdownType::Heading3,
             },
-            expanded: true,
+            expanded: self.expanded,
         }];
 
         if self.expanded {
