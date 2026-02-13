@@ -36,6 +36,7 @@ pub struct Section {
 pub struct MarkdownString {
     pub text: String,
     pub mdtype: MarkdownType,
+    pub expanded: bool,
 }
 
 #[derive(Debug)]
@@ -49,6 +50,7 @@ impl MarkdownString {
         return Self {
             text: content,
             mdtype: MarkdownType::Paragraph,
+            expanded: true,
         };
     }
 }
@@ -287,21 +289,24 @@ impl Node for Section {
     }
 
     fn path(&self, pos: usize) -> Vec<usize> {
+        println!("pathing {}", pos);
         let mut cur = self.level + self.heading.len();
         if pos < cur {
             return Vec::<usize>::new();
         }
 
         for (i, n) in self.children.iter().enumerate() {
-            cur += n.len(false);
-            if pos <= cur {
+            let l = n.len(false);
+            println!("{} {} {:?}", i, cur, n);
+            if pos <= cur + l {
                 if n.type_id() == NodeType::MarkdownString {
                     return Vec::<usize>::new();
                 }
-                let mut tmp = n.path(pos);
+                let mut tmp = n.path(pos - cur);
                 tmp.insert(0, i);
                 return tmp;
             }
+            cur += l;
         }
         return Vec::<usize>::new();
     }
@@ -320,6 +325,7 @@ impl Node for Section {
                 2 => MarkdownType::Heading2,
                 _ => MarkdownType::Heading3,
             },
+            expanded: true,
         }];
 
         if self.expanded {
@@ -343,6 +349,7 @@ impl Node for Section {
             return MarkdownString {
                 text: hstring,
                 mdtype: self.md_type(),
+                expanded: true,
             };
         }
 
@@ -356,6 +363,7 @@ impl Node for Section {
         return MarkdownString {
             text: "".to_string(),
             mdtype: MarkdownType::None,
+            expanded: true,
         };
     }
 }
@@ -417,12 +425,14 @@ fn parse_strings(text: String) -> Vec<Box<dyn Node>> {
                     output.push(Box::new(MarkdownString {
                         text: t[..first.0.0].to_string(),
                         mdtype: MarkdownType::Paragraph,
+                        expanded: true,
                     }));
                 }
 
                 output.push(Box::new(MarkdownString {
                     text: t[first.0.0..first.0.1].to_string(),
                     mdtype: first.1.clone(),
+                    expanded: true,
                 }));
                 t = t[first.0.1..].to_string();
                 rerun = true;
@@ -433,6 +443,7 @@ fn parse_strings(text: String) -> Vec<Box<dyn Node>> {
             output.push(Box::new(MarkdownString {
                 text: t.clone(),
                 mdtype: MarkdownType::Paragraph,
+                expanded: true,
             }));
             break;
         }
@@ -746,6 +757,21 @@ mod tests {
         sec.collapse(&[0usize, 1usize]);
         assert_eq!("# A\n## B\nbbbbb\n## C\n", sec.string(false));
         assert_eq!(20, sec.len(false));
+    }
+
+    #[test]
+    fn test_expand_2() {
+        let mut sec = Section::default();
+        let example = "# A\n# B\n## C\nccccc";
+        sec.children = parse(example.to_string());
+
+        assert_eq!([1usize, 0usize], sec.path(15).iter().as_slice());
+
+        println!("{:?}", sec);
+
+        sec.collapse(&[1usize, 0usize]);
+        println!("{}", sec.string(false));
+        assert_eq!("# A\n# B\n## C\n", sec.string(false));
     }
 
     #[test]

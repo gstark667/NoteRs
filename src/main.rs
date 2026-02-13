@@ -1,5 +1,5 @@
 use cssparser_color::Color;
-use eframe::egui::text::{CCursorRange, LayoutJob};
+use eframe::egui::text::{CCursor, CCursorRange, LayoutJob};
 use eframe::egui::text_edit::TextEditState;
 use eframe::egui::{self, TextBuffer};
 use eframe::egui::{Color32, CursorIcon, FontFamily, FontId, Stroke, TextFormat, Visuals};
@@ -266,6 +266,7 @@ impl eframe::App for NoteRs {
                     .show(ui);
                 let response = editor.response;
                 let galley = editor.galley;
+                let painter = ui.painter();
 
                 if let Some(cursor_range) = editor.cursor_range {
                     if self.cursor_range.primary.index != cursor_range.primary.index
@@ -301,11 +302,27 @@ impl eframe::App for NoteRs {
                         let idx = cursor.index;
                         let node = self.note.get_node(idx);
                         match node.mdtype {
-                            MarkdownType::Link
-                            | MarkdownType::Heading1
+                            MarkdownType::Link => {
+                                ctx.output_mut(|out| out.cursor_icon = CursorIcon::PointingHand)
+                            }
+                            _ => {}
+                        }
+                    }
+
+                    let mut index = 0;
+                    for item in self.note.markdown() {
+                        index += item.text.len();
+                        match item.mdtype {
+                            MarkdownType::Heading1
                             | MarkdownType::Heading2
                             | MarkdownType::Heading3 => {
-                                ctx.output_mut(|out| out.cursor_icon = CursorIcon::PointingHand)
+                                painter.text(
+                                    galley.pos_from_cursor(CCursor::new(index)).min,
+                                    egui::Align2::LEFT_TOP,
+                                    if true { ">" } else { "V" },
+                                    egui::FontId::default(),
+                                    ui.visuals().text_color(),
+                                );
                             }
                             _ => {}
                         }
